@@ -159,7 +159,10 @@ public class SokoBot {
                     nextRows[i] = crateToRow;
                     nextCols[i] = crateToCol;
 
-                    State next = new State(cr, cc, nextRows, nextCols, current.moves + moveChar[d]);
+                    String walk = walkPathTo(current.playerRow, current.playerCol, pushFromRow, pushFromCol);
+                    String fullMoves = current.moves + walk + moveChar[d];
+
+                    State next = new State(cr, cc, nextRows, nextCols, fullMoves);
 
                     String nextKey = next.key();
                     if (visited.contains(nextKey)) continue;
@@ -178,10 +181,16 @@ public class SokoBot {
         return ""; // search exhausted, no solution found
     }
 
-    // Player can reach the push point without moving any crate? Flood fill
-    // from the current player position over open floor.
+    // Player can reach the push point without moving any crate? BFS from the
+    // current player position over open floor, recording the move taken to
+    // reach each cell so the real walking path can be reconstructed later.
+    static char[][] reachedFrom; // direction index used to first reach each cell, or -1
+
     static boolean[][] computeReachable(State state) {
         boolean[][] reachable = new boolean[totalRows][totalCols];
+        reachedFrom = new char[totalRows][totalCols];
+        for (char[] row : reachedFrom) Arrays.fill(row, (char) -1);
+
         ArrayDeque<int[]> queue = new ArrayDeque<>();
         queue.add(new int[]{state.playerRow, state.playerCol});
         reachable[state.playerRow][state.playerCol] = true;
@@ -196,10 +205,26 @@ public class SokoBot {
                 if (grid[nr][nc] == '#') continue;
                 if (hasCrateAt(state, nr, nc)) continue;
                 reachable[nr][nc] = true;
+                reachedFrom[nr][nc] = (char) d;
                 queue.add(new int[]{nr, nc});
             }
         }
         return reachable;
+    }
+
+    // Reconstructs the actual walking moves from the player's current
+    // position to (targetRow, targetCol) using the BFS parent trail left
+    // behind in reachedFrom by the most recent computeReachable() call.
+    static String walkPathTo(int playerRow, int playerCol, int targetRow, int targetCol) {
+        StringBuilder sb = new StringBuilder();
+        int r = targetRow, c = targetCol;
+        while (r != playerRow || c != playerCol) {
+            int d = reachedFrom[r][c];
+            sb.append(moveChar[d]);
+            r -= deltaRow[d];
+            c -= deltaCol[d];
+        }
+        return sb.reverse().toString();
     }
 
     // Sum of each crate's distance to its nearest unclaimed target.
@@ -255,10 +280,10 @@ public class SokoBot {
             int c = state.crateCols[i];
             if (grid[r][c] == '.') continue; // sitting on a target is fine
 
-            boolean wallLeft = grid[r][c - 1] == '#';
-            boolean wallRight = grid[r][c + 1] == '#';
-            boolean wallUp = grid[r - 1][c] == '#';
-            boolean wallDown = grid[r + 1][c] == '#';
+            boolean wallLeft = !inBounds(r, c - 1) || grid[r][c - 1] == '#';
+            boolean wallRight = !inBounds(r, c + 1) || grid[r][c + 1] == '#';
+            boolean wallUp = !inBounds(r - 1, c) || grid[r - 1][c] == '#';
+            boolean wallDown = !inBounds(r + 1, c) || grid[r + 1][c] == '#';
 
             if ((wallLeft || wallRight) && (wallUp || wallDown)) {
                 return true;
